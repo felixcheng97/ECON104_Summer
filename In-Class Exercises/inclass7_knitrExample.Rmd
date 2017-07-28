@@ -1,0 +1,118 @@
+---
+title: "Econ 706 Recitation 8 R Code"
+author: "Gorkem Bostanci and Irina Pimenova"
+date: "March 15, 2017"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+install.packages("markdown")
+install.packages("knitr")
+install.packages("invgamma")
+library("markdown")
+library("knitr")
+library("invgamma")
+```
+
+In this document, we estimate an AR(1) model (without intercept) using Bayesian techniques with unknown variance. The model is 
+
+
+$$y_t=\phi_1y_{t-1}+u_t \: \: u_t \sim \mathcal{N}(0,\sigma^2)$$
+
+Let's simulate a dataset first.
+
+```{r data}
+y0=0
+sigma=1
+phi=0.8
+T=100
+y=matrix(0,nrow=T+1)
+y[1]=y0
+ut=rnorm(T,mean=0,sd=sigma^2) #Simulate the Shocks 
+for (t in 2:(T+1)){
+  y[t]=phi*y[t-1]+ut[t-1]
+}
+```
+
+This is how our data looks like:
+```{r dataplot}
+plot(y, type="l")
+
+```
+
+Define Y to be vector $(y_1, ..., y_T)$ and X to be the vector $(y_0,...,y_{T-1})$. We will further define prior distributions for both $\phi$ and $\gamma$:
+
+$$\sigma^2\sim \mathcal{IG}(\underline{\nu},\underline{s}^2) \: \: \phi|\sigma^2\sim \mathcal{N}(\underline{\phi},\sigma^2 \underline{V}_\phi)$$
+Then, in a linear Gaussian regression model, posterior takes the form:
+
+$$\bar{\phi}=(X'X+\underline{V}_\phi^{-1})^{-1}(X'Y+\underline{V}_\phi^{-1} \underline{\phi})$$
+$$\bar{V}_\phi=(X'X+\underline{V}_\phi^{-1})^{-1}$$
+$$\bar{s}^2=\underline{s}^2+Y'Y+\underline{\phi}' \underline{V}_\phi^{-1} \underline{\phi}- \bar{\phi}' \bar{V}_\phi^{-1} \bar{\phi}$$
+$$\bar{\nu}=\underline{\nu}+T$$
+Refer to lecture notes for the derivations of these. 
+
+
+Let's set an arbitrary prior with the conjugate form.
+
+```{r priorparameters}
+Y=y[2:101]
+X=y[1:100]
+
+phiPRIOR=0
+VphiPRIOR=2
+
+nuPRIOR=10
+ssqPRIOR=1
+
+```
+
+Then we compute posterior parameters as: 
+
+```{r posteriorparameters}
+phiPOSTERIOR=(t(X) %*% X + VphiPRIOR^-1)^-1 %*% (t(X) %*% Y+(VphiPRIOR^-1  %*%  phiPRIOR))
+VphiPOSTERIOR=(t(X) %*% X + VphiPRIOR^-1)^-1
+ssqPOSTERIOR=ssqPRIOR+t(Y) %*% Y +phiPRIOR  %*% VphiPRIOR^-1  %*%  phiPRIOR -
+                                    phiPOSTERIOR  %*% VphiPOSTERIOR^-1  %*%  phiPOSTERIOR
+nuPOSTERIOR=nuPRIOR+T
+```
+
+Given that we have the posterior distributions, we can sample from them. We can use direct sampling here. Realize that we are using a different sigma draw for each phi draw. This provides independence across phi draws.
+```{r sampling}
+N=1000 #Sample size
+
+SigmaSQDraws=matrix(0,1000,1)
+PhiDraws=matrix(0,1000,1)
+
+SigmaSQDraws=rinvgamma(N,rate=ssqPOSTERIOR/2,shape=nuPOSTERIOR/2)
+for (ii in 1:N){
+PhiDraws[ii]=rnorm(1,phiPOSTERIOR,(SigmaSQDraws[ii]^2)*VphiPOSTERIOR)
+}
+```
+
+Now, we can plot our samples and compute basic descriptive statistics. 
+
+```{r plots}
+plot(PhiDraws,main="Scatterplot of Phi")
+hist(PhiDraws)
+
+plot(SigmaSQDraws,main="Scatterplot of sigma-squared")
+hist(SigmaSQDraws)
+
+phiPOSTERIORMEAN=mean(PhiDraws)
+phiPOSTERIORMEDIAN=median(PhiDraws)
+```
+
+Posterior mean of phi becomes `r phiPOSTERIORMEAN` and posterior median of phi becomes `r phiPOSTERIORMEDIAN`. Lastly, we construct an equial tail probability (not equal tail length!) credible set:
+
+```{r credible}
+phiCredibleSetUB=quantile(PhiDraws,probs=.975)
+phiCredibleSetLB=quantile(PhiDraws,probs=.025)
+
+SigmaSQCredibleSetUB=quantile(SigmaSQDraws,probs=.975)
+SigmaSQCredibleSetLB=quantile(SigmaSQDraws,probs=.025)
+```
+
+The credible set for phi becomes [`r phiCredibleSetLB`,`r phiCredibleSetUB`] and for sigma-squared becomes [`r SigmaSQCredibleSetLB`,`r SigmaSQCredibleSetUB`].
